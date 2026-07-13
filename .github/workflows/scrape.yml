@@ -1,1 +1,27 @@
+name: Daily Stock Scraper
 
+on:
+  schedule:
+    - cron: '0 19 * * *'   # UTC 時間 19:00 = 台灣時間 03:00
+  workflow_dispatch:        # 允許你在 GitHub 網頁上手動點按鈕立即執行（測試用）
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 執行爬蟲
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: python main.py
