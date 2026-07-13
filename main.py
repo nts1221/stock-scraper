@@ -34,92 +34,88 @@ def get_official_date():
 official_date = get_official_date()
 
 # ==========================================
-# 3. 模塊化 API 請求函數 (含 JSON 解析容錯)
+# 3. 模塊化 API 請求函數 (含容錯機制)
 # ==========================================
 def fetch_twse_api(url):
     try:
-        response = requests.get(url, timeout=15) # 延長等待時間，避免政府伺服器過慢
-        # 確保伺服器有正常回應，且內容確實是 JSON 格式
+        response = requests.get(url, timeout=15)
         if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
             return pd.DataFrame(response.json())
-        else:
-            print(f"API 狀態異常 ({url}): 伺服器未回傳標準 JSON")
-            return pd.DataFrame()
-    except Exception as e:
-        print(f"API 請求失敗 ({url}): {e}")
+        return pd.DataFrame()
+    except Exception:
         return pd.DataFrame()
 
+# 【關鍵升級】擴展為 4 支 API，加入收盤行情
 endpoints = {
     "估值指標": "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
+    "收盤行情": "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", # 新增：獲取股價
     "綜合損益表": "https://openapi.twse.com.tw/v1/opendata/t187ap14_L",
     "月營收資訊": "https://openapi.twse.com.tw/v1/opendata/t21sc03_L"
 }
 
 # ==========================================
-# 4. 並發抓取與數據矩陣清洗 (防禦性架構)
+# 4. 並發抓取與防禦性資料縫合
 # ==========================================
-with ThreadPoolExecutor(max_workers=3) as executor:
+with ThreadPoolExecutor(max_workers=4) as executor:
     results = list(executor.map(fetch_twse_api, endpoints.values()))
 
 df_val = results[0]  
-df_inc = results[1]  
-df_rev = results[2]  
+df_price = results[1] # 取得收盤價矩陣
+df_inc = results[2]  
+df_rev = results[3]  
 
 if not df_val.empty:
-    # 確保資料表不是空的，且確實包含公司代號才進行改名
-    if not df_inc.empty and '公司代號' in df_inc.columns: 
-        df_inc = df_inc.rename(columns={'公司代號': 'Code'})
-    if not df_rev.empty and '公司代號' in df_rev.columns: 
-        df_rev = df_rev.rename(columns={'公司代號': 'Code'})
-
     master_df = df_val
 
-    # 【核心修復：防禦性資料縫合】
-    # 先比對 API 給的資料裡「真的有」哪些欄位，才把它們拿出來合併，徹底消滅 KeyError
+    # 【新增】縫合收盤價
+    if not df_price.empty and 'ClosingPrice' in df_price.columns:
+        if 'Code' not in df_price.columns and '公司代號' in df_price.columns:
+            df_price = df_price.rename(columns={'公司代號': 'Code'})
+        master_df = pd.merge(master_df, df_price[['Code', 'ClosingPrice']], on='Code', how='left')
+
+    # 縫合損益表 (容錯檢查)
     if not df_inc.empty:
+        if '公司代號' in df_inc.columns: df_inc = df_inc.rename(columns={'公司代號': 'Code'})
         inc_targets = ['營業毛利（毛損）', '營業利益（損失）', '基本每股盈餘（元）']
-        # 動態檢查清單：只留下真正存在的欄位
         inc_cols = ['Code'] + [col for col in inc_targets if col in df_inc.columns]
         master_df = pd.merge(master_df, df_inc[inc_cols], on='Code', how='left')
 
+    # 縫合營收表 (容錯檢查)
     if not df_rev.empty:
+        if '公司代號' in df_rev.columns: df_rev = df_rev.rename(columns={'公司代號': 'Code'})
         rev_targets = ['當月營收', '上月比較增減(%)']
         rev_cols = ['Code'] + [col for col in rev_targets if col in df_rev.columns]
         master_df = pd.merge(master_df, df_rev[rev_cols], on='Code', how='left')
 
-    # 賦予官方資料日期
     master_df['DataDate'] = official_date
 
-    # 定義我們理想中想要的所有欄位
+    # 定義理想中的完整欄位 (加入 ClosingPrice)
     core_columns = [
-        'Code', 'Name', 'PEratio', 'PBratio', 'DividendYield', 
+        'Code', 'Name', 'ClosingPrice', 'PEratio', 'PBratio', 'DividendYield', 
         '當月營收', '上月比較增減(%)', '營業毛利（毛損）', '營業利益（損失）', '基本每股盈餘（元）', 'DataDate'
     ]
     
-    # 再次防呆：過濾出最終資料表中確實存在的欄位
     available_columns = [col for col in core_columns if col in master_df.columns]
     master_df = master_df[available_columns]
-    
-    # 將缺失值替換為 'N/A'
     master_df = master_df.fillna('N/A')
 
     # ==========================================
     # 5. 輸出至 Google Sheets
     # ==========================================
     headers_map = {
-        'Code': '股票代號', 'Name': '公司名稱', 'PEratio': '本益比 (P/E)', 'PBratio': '股價淨值比 (P/B)', 
-        'DividendYield': '殖利率 (%)', '當月營收': '當月營收 (千元)', '上月比較增減(%)': '月增率 (%)', 
+        'Code': '股票代號', 'Name': '公司名稱', 'ClosingPrice': '最新股價', # 新增中文表頭
+        'PEratio': '本益比 (P/E)', 'PBratio': '股價淨值比 (P/B)', 'DividendYield': '殖利率 (%)', 
+        '當月營收': '當月營收 (千元)', '上月比較增減(%)': '月增率 (%)', 
         '營業毛利（毛損）': '營業毛利 (千元)', '營業利益（損失）': '營業利益 (千元)', 
         '基本每股盈餘（元）': 'EPS (元)', 'DataDate': '資料日期'
     }
     
-    # 動態產生表頭：資料有什麼，表頭就對應顯示什麼
     headers = [[headers_map[col] for col in available_columns]]
     data_rows = headers + master_df.values.tolist()
 
     sheet.clear() 
     sheet.update(values=data_rows, range_name="A1")
 
-    print(f"✅ 成功建構全市場量化資料庫，共計 {len(master_df)} 檔標的。官方資料日期為：{official_date}")
+    print(f"✅ 成功建構全市場量化資料庫，共計 {len(master_df)} 檔標的。")
 else:
-    print("❌ 核心估值資料 (BWIBBU_ALL) 抓取失敗，請確認證交所伺服器狀態。")
+    print("❌ 核心估值資料抓取失敗。")
