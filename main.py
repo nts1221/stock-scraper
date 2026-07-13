@@ -1,37 +1,37 @@
 import os
 import json
+import requests
+import pandas as pd
 import gspread
-import yfinance as yf
 from google.oauth2.service_account import Credentials
 
-# 1. 系統認證與登入 Google Sheets [cite: 64, 70]
+# 1. 系統認證與登入 Google Sheets 倉庫 (維持不變)
 scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
 client = gspread.authorize(creds)
-
-# 2. 開啟指定的試算表與工作表 [cite: 72, 74]
 sheet = client.open_by_key(os.environ.get("SPREADSHEET_ID")).sheet1
 
-# 3. 獲取金融數據 (以台積電與蘋果為例)
-tickers = ["2330.TW", "AAPL"]
-data_rows = [["股票代號", "公司名稱", "最新股價", "本益比 (P/E)", "股價淨值比 (P/B)"]] # 表頭
+# 2. 呼叫證交所 OpenAPI 獲取全市場最新數據
+# 此 API 包含：代號(Code), 名稱(Name), 本益比(PEratio), 股價淨值比(PBratio), 殖利率(DividendYield)
+url = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
+response = requests.get(url)
+data = response.json()
 
-for t in tickers:
-    stock = yf.Ticker(t)
-    info = stock.info
-    
-    # 提取關鍵財務指標，若無資料則顯示 N/A
-    symbol = t
-    name = info.get('shortName', 'N/A')
-    price = info.get('currentPrice', info.get('regularMarketPrice', 'N/A'))
-    pe_ratio = info.get('trailingPE', 'N/A')
-    pb_ratio = info.get('priceToBook', 'N/A')
-    
-    data_rows.append([symbol, name, price, pe_ratio, pb_ratio])
+# 3. 數據矩陣清洗與轉換 (Data Wrangling)
+df = pd.DataFrame(data)
 
-# 4. 覆蓋寫入 Google 試算表 [cite: 78, 82]
-sheet.clear() # 先清空舊資料
-sheet.update(values=data_rows, range_name="A1") # gspread 6.x 新語法寫入新資料 [cite: 82]
+# 篩選出我們需要的核心估值欄位
+df = df[['Code', 'Name', 'PEratio', 'PBratio', 'DividendYield']]
 
-print("✅ 真實金融數據已成功抓取並寫入 Google Sheets！")
+# 建立自訂表頭
+headers = [["股票代號", "公司名稱", "本益比 (P/E)", "股價淨值比 (P/B)", "殖利率 (%)"]]
+
+# 將 Pandas DataFrame 轉換回 Google Sheets 接受的二維陣列 (List of Lists)
+data_rows = headers + df.values.tolist()
+
+# 4. 覆蓋寫入 Google 試算表
+sheet.clear() 
+sheet.update(values=data_rows, range_name="A1")
+
+print(f"✅ 成功抓取全市場共 {len(df)} 檔上市股票數據，並已寫入 Google Sheets！")
