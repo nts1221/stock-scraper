@@ -22,10 +22,10 @@ data = response.json()
 df = pd.DataFrame(data)
 
 # 篩選出我們需要的核心估值欄位
-df = df[['Code', 'Name', 'PEratio', 'PBratio', 'DividendYield']]
+df = df[['Code', 'Name', 'PEratio', 'PBratio', 'DividendYield', 'DividendYear', 'FiscalYearQuarter']]
 
 # 建立自訂表頭
-headers = [["股票代號", "公司名稱", "本益比 (P/E)", "股價淨值比 (P/B)", "殖利率 (%)"]]
+headers = [["股票代號", "公司名稱", "本益比 (P/E)", "股價淨值比 (P/B)", "殖利率 (%)", "股利發放年度", "財報基準季"]]
 
 # 將 Pandas DataFrame 轉換回 Google Sheets 接受的二維陣列 (List of Lists)
 data_rows = headers + df.values.tolist()
