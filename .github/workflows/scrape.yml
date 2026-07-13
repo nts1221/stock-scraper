@@ -1,8 +1,30 @@
-- name: 安裝套件
-        run: pip install -r scraper/requirements.txt
+name: Daily Auto Scraper Platform
 
-      - name: 執行爬蟲
+on:
+  schedule:
+    - cron: '30 18 * * *' # 台灣時間凌晨 02:30 自動執行
+  workflow_dispatch:      # 允許網頁手動觸發
+
+jobs:
+  run-scraper-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python Environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Python Scraper Script
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-        run: python scraper/main.py
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }} # 【關鍵修復】補上這行，將試算表 ID 交給 Python
+        run: python main.py
