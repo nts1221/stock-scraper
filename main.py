@@ -1,39 +1,39 @@
 import os
 import json
 import gspread
+import yfinance as yf
 from google.oauth2.service_account import Credentials
 
-# ── 1. 從環境變數讀取金鑰，還原成 Python 字典 ──
-# GOOGLE_CREDENTIALS 這個環境變數裡存的是「一整串 JSON 文字」，
-# 我們用 json.loads() 把文字字串轉換成 Python 可以使用的字典物件。
-credentials_json = os.environ["GOOGLE_CREDENTIALS"]
-credentials_dict = json.loads(credentials_json)
+# 1. 系統認證與登入 Google Sheets 倉庫
+scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
+creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
+client = gspread.authorize(creds)
+sheet = client.open_by_key(os.environ.get("SPREADSHEET_ID")).sheet1
 
-# ── 2. 定義這次要申請的權限範圍（scope）──
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-creds = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
+# 2. 定義標的與核心估值指標表頭
+tickers = ["2330.TW", "AAPL", "MSFT"]
+data_rows = [["股票代號", "企業名稱", "最新股價", "本益比 (P/E)", "股價淨值比 (P/B)", "股東權益報酬率 (ROE)"]]
 
-# ── 3. 用憑證登入 gspread，拿到操作試算表的「遙控器」──
-gc = gspread.authorize(creds)
+# 3. 獲取真實金融數據
+for t in tickers:
+    stock = yf.Ticker(t)
+    info = stock.info
+    
+    symbol = t
+    name = info.get('shortName', 'N/A')
+    price = info.get('currentPrice', info.get('regularMarketPrice', 'N/A'))
+    pe_ratio = info.get('trailingPE', 'N/A')
+    pb_ratio = info.get('priceToBook', 'N/A')
+    roe = info.get('returnOnEquity', 'N/A')
+    
+    # 將 ROE 轉換為易讀的百分比格式
+    if roe != 'N/A' and isinstance(roe, (int, float)):
+        roe = f"{roe*100:.2f}%"
 
-# ── 4. 開啟指定的試算表 ──
-spreadsheet_id = os.environ["1sdAIcIcYmrqFESa25dZbbuM_RMdJ-uqLbOcL8c3wmkM"]
-sh = gc.open_by_key(spreadsheet_id)
-worksheet = sh.sheet1  # 取第一個工作表分頁
+    data_rows.append([symbol, name, price, pe_ratio, pb_ratio, roe])
 
-# ── 5. 這裡放你的爬蟲/資料分析邏輯 ──
-# 範例：假裝我們爬到了一些資料
-data_rows = [
-    ["股票代號", "收盤價", "更新時間"],
-    ["2330", "1050", "2026-07-13"],
-    ["AAPL", "215.3", "2026-07-13"],
-]
-
-# ── 6. 清空舊資料後寫入新資料 ──
-worksheet.clear()
-worksheet.update(data_rows, "A1")
-
-print("寫入完成！")
+# 4. 覆蓋寫入 Google 試算表
+sheet.clear() # 確保資料庫不會無限堆疊舊資料
+sheet.update(values=data_rows, range_name="A1")
+print("✅ 真實金融數據已成功抓取並寫入 Google Sheets！")
