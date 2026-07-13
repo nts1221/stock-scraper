@@ -9,7 +9,7 @@ scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
 creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
 client = gspread.authorize(creds)
-sheet = client.open_by_key(os.environ.get("SPREADSHEET_ID")).sheet1
+sheet = client.open_by_key(os.environ.get("1sdAIcIcYmrqFESa25dZbbuM_RMdJ-uqLbOcL8c3wmkM")).sheet1
 
 # 2. 定義標的與核心估值指標表頭
 tickers = ["2330.TW", "AAPL", "MSFT"]
